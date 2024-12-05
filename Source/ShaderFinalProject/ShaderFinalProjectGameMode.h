@@ -13,6 +13,9 @@ class AShaderFinalProjectGameMode : public AGameModeBase
 
 public:
 	AShaderFinalProjectGameMode();
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool isStormy;
 };
 
 
