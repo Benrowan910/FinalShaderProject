@@ -62,6 +62,10 @@ public:
 	TArray<int> TriangleData;
 
 	TArray<FVector2D> UVData;
+	
+	TArray<FVector> Normals;
+	
+	TArray<FColor> Colors;
 
 	int VertexCount = 0;
 

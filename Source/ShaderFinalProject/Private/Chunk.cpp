@@ -102,7 +102,10 @@ void AChunk::GenerateMesh()
 
 void AChunk::ApplyMesh() const
 {
-	Mesh->CreateMeshSection(0, VertexData, TriangleData, TArray<FVector>(), UVData, TArray<FColor>(), TArray<FProcMeshTangent>(), true);
+	UMaterialInstanceDynamic* DynamicMaterial = UMaterialInstanceDynamic::Create(SandMaterial, Mesh);
+
+    Mesh->SetMaterial(0, DynamicMaterial);
+	Mesh->CreateMeshSection(0, VertexData, TriangleData, Normals, UVData, Colors, TArray<FProcMeshTangent>(), true);
 	//FBox CollisionBox(VertexData);
 	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Mesh->SetCollisionObjectType(ECC_WorldStatic);
@@ -110,15 +113,13 @@ void AChunk::ApplyMesh() const
 	//Mesh->SetCollisionEnabled(ECC_Complex);
 	Mesh->UpdateCollisionProfile();
 
-	UMaterialInstanceDynamic* DynamicMaterial = UMaterialInstanceDynamic::Create(SandMaterial, Mesh);
-
 	for(int i = 0; i < BlockTextures.Num(); i++)
 	{
 		UTexture2D* CurrentTexture = BlockTextures[i];
 
 		DynamicMaterial->SetTextureParameterValue(FName(TEXT("BlockTexture")), CurrentTexture);
 	}
-	Mesh->SetMaterial(0, DynamicMaterial);
+	
 	
 }
 
@@ -138,6 +139,9 @@ void AChunk::CreateFace(EDirection Direction, FVector Position)
 	VertexData.Append(GetFaceVertices(Direction, Position));
 	UVData.Append({FVector2D(1,1), FVector2D(1,0), FVector2D(0,0), FVector2D(0,1)});
 	TriangleData.Append({VertexCount + 3, VertexCount + 2, VertexCount, VertexCount + 2, VertexCount + 1, VertexCount});
+	const auto Color = FColor(96,35,115,255);
+    Colors.Append({
+    Color, Color, Color, Color});
 
 	BlockTextures.Add(BlockTexture);
 	VertexCount += 4;
