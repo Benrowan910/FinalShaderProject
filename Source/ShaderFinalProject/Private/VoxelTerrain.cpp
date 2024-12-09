@@ -15,6 +15,7 @@ AVoxelTerrain::AVoxelTerrain()
 void AVoxelTerrain::BeginPlay()
 {
 	Super::BeginPlay();
+	this->SetActorLocation(SpawnLocation);
 
 	for ( int x = -DrawDistance; x <= DrawDistance; ++x)
 	{

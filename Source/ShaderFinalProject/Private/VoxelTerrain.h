@@ -24,6 +24,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Voxel Terrain")
 	int ChunkSize = 32;
 
+	UPROPERTY(EditAnywhere, Category = "Voxel Terrain")
+	FVector SpawnLocation;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

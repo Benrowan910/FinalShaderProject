@@ -59,7 +59,12 @@ void AChunk::GenerateBlocks()
 
 			for (int z = 0; z < Height; ++z)
 			{
-				Blocks[GetBlockIndex(x,y,z)] = EBlock::Stone;
+				Blocks[GetBlockIndex(x,y,z)] = EBlock::Grass;
+			}
+
+			for (int z = 0; z < Height / 2; ++z)
+			{
+				Blocks[GetBlockIndex(x,y,z)] = EBlock::Moss;
 			}
 
 			for (int z = Height; z < Size; ++z)
@@ -97,9 +102,15 @@ void AChunk::GenerateMesh()
 
 void AChunk::ApplyMesh() const
 {
-	Mesh->CreateMeshSection(0, VertexData, TriangleData, TArray<FVector>(), UVData, TArray<FColor>(), TArray<FProcMeshTangent>(), false);
+	Mesh->CreateMeshSection(0, VertexData, TriangleData, TArray<FVector>(), UVData, TArray<FColor>(), TArray<FProcMeshTangent>(), true);
+	//FBox CollisionBox(VertexData);
+	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Mesh->SetCollisionObjectType(ECC_WorldStatic);
+	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
+	//Mesh->SetCollisionEnabled(ECC_Complex);
+	Mesh->UpdateCollisionProfile();
 
-	UMaterialInstanceDynamic* DynamicMaterial = UMaterialInstanceDynamic::Create(BaseMaterial, Mesh);
+	UMaterialInstanceDynamic* DynamicMaterial = UMaterialInstanceDynamic::Create(SandMaterial, Mesh);
 
 	for(int i = 0; i < BlockTextures.Num(); i++)
 	{
@@ -176,6 +187,30 @@ UTexture2D* AChunk::GetBlockTexture(int BlockHeight) const
 	else  // Higher layers, stone
 	{
 		return SandTex;
+	}
+}
+
+int AChunk::GetTextureIndex(EBlock Block, FVector Normal) const
+{
+	switch (Block)
+	{
+	case EBlock::Grass:
+		{
+			return 0;
+		}
+	case EBlock::Moss:
+		{
+			return 1;
+		}
+	case EBlock::Stone:
+		{
+			return 2;
+		}
+	case EBlock::Sand:
+		{
+			return 3;
+		}
+	default: return NULL;
 	}
 }
 

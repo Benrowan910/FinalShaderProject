@@ -68,7 +68,16 @@ public:
 	TArray<UTexture2D*> BlockTextures;
 
 	UPROPERTY(EditAnywhere)
-	UMaterialInterface* BaseMaterial;
+	UMaterialInterface* SandMaterial;
+
+	UPROPERTY(EditAnywhere)
+	UMaterialInterface* GrassMaterial;
+
+	UPROPERTY(EditAnywhere)
+	UMaterialInterface* RockMaterial;
+
+	UPROPERTY(EditAnywhere)
+	UMaterialInterface* MossMaterial;
 	
 	const FVector BlockVertexData[8] = {
 	FVector(100, 100, 100),
@@ -107,6 +116,8 @@ public:
 	int GetBlockIndex(int X, int Y, int Z) const;
 
 	UTexture2D* GetBlockTexture(int BlockHeight) const;
+
+	int GetTextureIndex(EBlock Block, FVector Normal) const;
 
 	
 };
