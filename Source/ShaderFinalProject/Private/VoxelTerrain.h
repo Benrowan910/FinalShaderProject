@@ -14,7 +14,8 @@ class AVoxelTerrain : public AActor
 public:	
 	// Sets default values for this actor's properties
 	AVoxelTerrain();
-
+	
+	
 	UPROPERTY(EditAnywhere, Category = "Voxel Terrain")
 	TSubclassOf<AActor> Chunk;
 
@@ -24,8 +25,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Voxel Terrain")
 	int ChunkSize = 32;
 
-	UPROPERTY(EditAnywhere, Category = "Voxel Terrain")
-	FVector SpawnLocation;
 
 protected:
 	// Called when the game starts or when spawned
@@ -35,4 +34,9 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
+private:
+	int ChunkCount;
+
+	void Generate3DWorld();
+	void Generate2DWorld();
 };

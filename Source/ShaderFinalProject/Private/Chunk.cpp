@@ -5,9 +5,12 @@
 #include "Enums.h"
 #include "FastNoiseLite.h"
 #include "FastNoiseWrapper.h"
+#include "MeshUtilitiesCommon.h"
 #include "ProceduralMeshComponent.h"
 
 #include "Field/FieldSystemNoiseAlgo.h"
+#include "NavMesh/NavMeshRenderingComponent.h"
+#include "NavMesh/NavMeshRenderingComponent.h"
 
 // Sets default values
 AChunk::AChunk()
@@ -18,12 +21,17 @@ AChunk::AChunk()
 	Mesh = CreateDefaultSubobject<UProceduralMeshComponent>("Mesh");
 	Noise = new FastNoiseLite();
 	Noise->SetFrequency(0.03f);
-	Noise->SetNoiseType(FastNoiseLite::NoiseType_Perlin);
-	Noise->SetFractalType(FastNoiseLite::FractalType_FBm);
+	Noise->SetNoiseType(FastNoiseLite::NoiseType_ValueCubic);
+	Noise->SetFractalType(FastNoiseLite::FractalType_DomainWarpProgressive);
 
 	Blocks.SetNum(Size * Size * Size);
 
-	Mesh->SetCastShadow(false);
+	Mesh->SetCastShadow(true);
+	Mesh->HasStaticLighting();
+	Mesh->SetStaticWhenNotMoveable(true);
+
+	SetRootComponent(Mesh);
+	
 
 }
 
@@ -37,62 +45,150 @@ void AChunk::BeginPlay()
 	ApplyMesh();
 }
 
-// Called every frame
-void AChunk::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
-}
-
 void AChunk::GenerateBlocks()
 {
 	const auto Location = GetActorLocation();
 
 	for (int x = 0; x < Size; ++x)
 	{
-		for (int y = 0; y < Size; ++y)
+		for(int y = 0; y < Size; ++y)
 		{
 			const float Xpos = (x * 100 + Location.X) / 100;
 			const float Ypos = (y * 100 + Location.Y) / 100;
 
-			const int Height = FMath::Clamp(FMath::RoundToInt((Noise->GetNoise(Xpos, Ypos) +1) * Size / 2), 0, Size);
+			const int Height = FMath::Clamp(FMath::RoundToInt((Noise->GetNoise(Xpos, Ypos) + 1) * Size / 2),0,Size);
 
-			for (int z = 0; z < Height; ++z)
+			for(int z = 0; z < Size; z++)
 			{
-				Blocks[GetBlockIndex(x,y,z)] = EBlock::Grass;
-			}
-
-			for (int z = 0; z < Height / 2; ++z)
-			{
-				Blocks[GetBlockIndex(x,y,z)] = EBlock::Moss;
-			}
-
-			for (int z = Height; z < Size; ++z)
-			{
-				Blocks[GetBlockIndex(x,y,z)] = EBlock::Air;
+				if (z < Height - 4) Blocks[GetBlockIndex(x, y, z)] = EBlock::Sand;
+				else if(z < Height - 3) Blocks[GetBlockIndex(x,y,z)] = EBlock::Stone;
+				else if (z < Height - 1) Blocks[GetBlockIndex(x, y, z)] = EBlock::Moss;
+				else if (z == Height - 1) Blocks[GetBlockIndex(x, y, z)] = EBlock::Grass;
+				else Blocks[GetBlockIndex(x, y, z)] = EBlock::Air;
 			}
 		}
 	}
 }
 
+void AChunk::ApplyMesh()
+{
+	Mesh->SetMaterial(0, Material);
+	Mesh->CreateMeshSection(0, ChunkData.Vertices, ChunkData.Triangles, ChunkData.Normals, ChunkData.UV0, ChunkData.Colors, TArray<FProcMeshTangent>(), true);
+}
+
 void AChunk::GenerateMesh()
 {
-	for( int x = 0; x < Size; ++x)
+	for(int Axis = 0; Axis < 3; ++Axis)
 	{
-		for(int y = 0; y < Size; ++y)
-		{
-			for(int z = 0; z < Size; ++z)
-			{
-				if(Blocks[GetBlockIndex(x,y,z)] != EBlock::Air)
-				{
-					const auto Position = FVector(x,y,z);
+		const int Axis1 = (Axis + 1 ) % 3;
+		const int Axis2 = (Axis + 2 ) % 3;
 
-					for(auto Direction : {EDirection::Forward, EDirection::Right, EDirection::Back, EDirection::Left, EDirection::Up, EDirection::Down})
+		const int MainAxisLimit = Size;
+		int Axis1Limit = Size;
+		int Axis2Limit = Size;
+
+		auto DeltaAxis1 = FIntVector::ZeroValue;
+		auto DeltaAxis2 = FIntVector::ZeroValue;
+
+		auto ChunkItr = FIntVector::ZeroValue;
+		auto AxisMask = FIntVector::ZeroValue;
+
+		AxisMask[Axis] = 1;
+
+		TArray<FMask> Mask;
+		Mask.SetNum(Axis1Limit * Axis2Limit);
+
+		for(ChunkItr[Axis] = -1; ChunkItr[Axis] < MainAxisLimit;)
+		{
+			int N = 0;
+
+			for(ChunkItr[Axis2] = 0; ChunkItr[Axis2] < Axis2Limit; ++ChunkItr[Axis2])
+			{
+				for(ChunkItr[Axis1] = 0; ChunkItr[Axis1] < Axis1Limit; ++ChunkItr[Axis1])
+				{
+					const auto CurrentBlock = GetBlock(ChunkItr);
+					const auto CompareBlock = GetBlock(ChunkItr + AxisMask);
+					
+					const bool CurrentBlockOpaque = CurrentBlock != EBlock::Air;
+					const bool CompareBlockOpaque = CompareBlock != EBlock::Air;
+
+					if(CurrentBlockOpaque == CompareBlockOpaque)
 					{
-						if (Check(GetPositionDirection(Direction, Position)))
+						Mask[N++] = FMask {EBlock::Null, 0};
+						
+					}	else if(CurrentBlockOpaque)
+					{
+						Mask[N++] = FMask {CurrentBlock, 1};
+					}
+					else
+					{
+						Mask[N++] = FMask {CompareBlock, -1};
+					}
+				}
+			}
+			++ChunkItr[Axis];
+			N= 0;
+
+			//Generate Mesh from a mask that is being generated.
+			for(int j = 0; j < Axis2Limit; ++j)
+			{
+				for(int i = 0; i < Axis1Limit;)
+				{
+					if(Mask[N].Normal != 0)
+					{
+						const auto CurrentMask = Mask[N];
+
+						ChunkItr[Axis1] = i;
+						ChunkItr[Axis2] = j;
+
+						int width;
+
+						for(width = 1; i + width < Axis1Limit && CompareMask(Mask[N + width], CurrentMask); ++ width)
 						{
-							CreateFace(Direction, Position * 100);
+							
 						}
+
+						int height;
+						bool done = false;
+
+						for(height = 1; j + height < Axis2Limit; ++height)
+						{
+							for(int k = 0; k < width; ++k)
+							{
+								if(CompareMask(Mask[N+k+height * Axis1Limit], CurrentMask)) continue;
+
+								done = true;
+								break;
+							}
+
+							if(done) break;
+						}
+
+						DeltaAxis1[Axis1] = width;
+						DeltaAxis2[Axis2] = height;
+
+						//Create quads now
+
+						CreateQuad(CurrentMask, AxisMask, width, height, ChunkItr, ChunkItr + DeltaAxis1, ChunkItr + DeltaAxis2, ChunkItr + DeltaAxis1 + DeltaAxis2);
+
+						//Clean the axis data.
+						DeltaAxis1 = FIntVector::ZeroValue;
+						DeltaAxis2 = FIntVector::ZeroValue;
+
+						for(int l = 0; l < height; ++l)
+						{
+							for(int k = 0; k < width; ++k)
+							{
+								Mask[N+k+l * Axis1Limit] = FMask{EBlock::Null, 0};
+							}
+						}
+
+						i += width;
+						N += width;
+					}else
+					{
+						i++;
+						N++;
 					}
 				}
 			}
@@ -100,77 +196,52 @@ void AChunk::GenerateMesh()
 	}
 }
 
-void AChunk::ApplyMesh() const
+void AChunk::CreateQuad(FMask Mask, FIntVector AxisMask, const int width, const int height, FIntVector v1, FIntVector v2, FIntVector v3, FIntVector v4)
 {
-	UMaterialInstanceDynamic* DynamicMaterial = UMaterialInstanceDynamic::Create(SandMaterial, Mesh);
+	const auto Normal = FVector(AxisMask * Mask.Normal);
+	const auto Color = FVector(0, 93, 93);
 
-    Mesh->SetMaterial(0, DynamicMaterial);
-	Mesh->CreateMeshSection(0, VertexData, TriangleData, Normals, UVData, Colors, TArray<FProcMeshTangent>(), true);
-	//FBox CollisionBox(VertexData);
-	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Mesh->SetCollisionObjectType(ECC_WorldStatic);
-	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
-	//Mesh->SetCollisionEnabled(ECC_Complex);
-	Mesh->UpdateCollisionProfile();
+	ChunkData.Vertices.Add(FVector(v1) * 100);
+	ChunkData.Vertices.Add(FVector(v2) * 100);
+	ChunkData.Vertices.Add(FVector(v3) * 100);
+	ChunkData.Vertices.Add(FVector(v4) * 100);
 
-	for(int i = 0; i < BlockTextures.Num(); i++)
+	ChunkData.Triangles.Add(VertexCount);
+	ChunkData.Triangles.Add(VertexCount + 2 + Mask.Normal);
+	ChunkData.Triangles.Add(VertexCount + 2 - Mask.Normal);
+	ChunkData.Triangles.Add(VertexCount + 3);
+	ChunkData.Triangles.Add(VertexCount + 1 - Mask.Normal);
+	ChunkData.Triangles.Add(VertexCount + 1 + Mask.Normal);
+
+	if(Normal.X==1 || Normal.X == -1)
 	{
-		UTexture2D* CurrentTexture = BlockTextures[i];
-
-		DynamicMaterial->SetTextureParameterValue(FName(TEXT("BlockTexture")), CurrentTexture);
+		ChunkData.UV0.Append({
+			(FVector2D(width,height)),
+			(FVector2D(0,height)),
+			(FVector2D(width,0)),
+			(FVector2D(0,0))});
 	}
-	
-	
-}
-
-bool AChunk::Check(FVector Position) const
-{
-	if (Position.X >= Size || Position.Y >= Size || Position.Z >= Size || Position.X < 0 || Position.Y < 0 || Position.Z < 0)
+	else
 	{
-		return true;
+		ChunkData.UV0.Append({
+			(FVector2D(height,width)),
+			(FVector2D(height,0)),
+			(FVector2D(0,width)),
+			(FVector2D(0,0))});
 	}
 
-	return Blocks[GetBlockIndex(Position.X, Position.Y, Position.Z)] ==EBlock::Air;
-}
 
-void AChunk::CreateFace(EDirection Direction, FVector Position)
-{
-	UTexture2D* BlockTexture = GetBlockTexture(Position.Z);
-	VertexData.Append(GetFaceVertices(Direction, Position));
-	UVData.Append({FVector2D(1,1), FVector2D(1,0), FVector2D(0,0), FVector2D(0,1)});
-	TriangleData.Append({VertexCount + 3, VertexCount + 2, VertexCount, VertexCount + 2, VertexCount + 1, VertexCount});
-	const auto Color = FColor(96,35,115,255);
-    Colors.Append({
-    Color, Color, Color, Color});
+	ChunkData.Normals.Add(Normal);
+	ChunkData.Normals.Add(Normal);
+	ChunkData.Normals.Add(Normal);
+	ChunkData.Normals.Add(Normal);
 
-	BlockTextures.Add(BlockTexture);
+	const auto color = FColor(0, 0,0,GetTextureIndex(Mask.Block, Normal));
+
+	ChunkData.Colors.Append({
+	color, color, color, color});
+
 	VertexCount += 4;
-}
-
-TArray<FVector> AChunk::GetFaceVertices(EDirection Direction, FVector Position) const
-{
-	TArray<FVector> Vertices;
-
-	for (int i = 0; i < 4; ++i)
-	{
-		Vertices.Add(BlockVertexData[BlockTriangleData[i + static_cast<int>(Direction) * 4]] * Scale + Position);
-	}
-
-	return Vertices;
-}
-
-FVector AChunk::GetPositionDirection(EDirection Direction, FVector Position) const
-{
-	switch (Direction)
-	{
-	case EDirection::Forward: return Position + FVector::ForwardVector;
-	case EDirection::Right: return Position + FVector::RightVector;
-	case EDirection::Back: return Position + FVector::BackwardVector;
-	case EDirection::Left: return Position + FVector::LeftVector;
-	case EDirection::Up: return Position + FVector::UpVector;
-	case EDirection::Down: return Position + FVector::DownVector;
-	default: throw std::invalid_argument("Invalid Direction");
-	}
 }
 
 int AChunk::GetBlockIndex(int X, int Y, int Z) const
@@ -178,43 +249,62 @@ int AChunk::GetBlockIndex(int X, int Y, int Z) const
 	return Z * Size * Size + Y * Size + X;
 }
 
-UTexture2D* AChunk::GetBlockTexture(int BlockHeight) const
+EBlock AChunk::GetBlock(FIntVector Index) const
 {
-	if (BlockHeight < Size / 4)  // For blocks at the bottom
-	{
-		return GrassTex;
-	}
-	else if (BlockHeight < Size / 2)  // Middle layer, maybe dirt
-	{
-		return MossTex;
-	}
-	else  // Higher layers, stone
-	{
-		return SandTex;
-	}
+	if (Index.X >= Size || Index.Y >= Size || Index.Z >= Size || Index.X < 0 || Index.Y < 0 || Index.Z < 0)
+		return EBlock::Air;
+	return Blocks[GetBlockIndex(Index.X, Index.Y, Index.Z)];
+}
+
+bool AChunk::CompareMask(FMask M1, FMask M2) const
+{
+	return M1.Block == M2.Block && M1.Normal == M2.Normal;
 }
 
 int AChunk::GetTextureIndex(EBlock Block, FVector Normal) const
 {
-	switch (Block)
+	switch(Block)
 	{
 	case EBlock::Grass:
 		{
-			return 0;
+			if(Normal == FVector::UpVector) return 0;
+			if(Normal == FVector::DownVector) return 1;
+			return 4;
 		}
 	case EBlock::Moss:
 		{
+			if(Normal == FVector::UpVector) return 1;
+			if(Normal == FVector::DownVector) return 1;
+			if(Normal == FVector::RightVector) return 1;
+			if(Normal == FVector::LeftVector) return 1;
+			if(Normal == FVector::ForwardVector) return 1;
+			if(Normal == FVector::BackwardVector) return 1;
+
 			return 1;
 		}
 	case EBlock::Stone:
 		{
+			if(Normal == FVector::UpVector) return 2;
+			if(Normal == FVector::DownVector) return 2;
+			if(Normal == FVector::RightVector) return 2;
+			if(Normal == FVector::LeftVector) return 2;
+			if(Normal == FVector::ForwardVector) return 2;
+			if(Normal == FVector::BackwardVector) return 2;
+
 			return 2;
 		}
 	case EBlock::Sand:
 		{
+			if(Normal == FVector::UpVector) return 3;
+			if(Normal == FVector::DownVector) return 3;
+			if(Normal == FVector::RightVector) return 3;
+			if(Normal == FVector::LeftVector) return 3;
+			if(Normal == FVector::ForwardVector) return 3;
+			if(Normal == FVector::BackwardVector) return 3;
+
 			return 3;
 		}
-	default: return NULL;
+	default: return 255;
 	}
 }
 

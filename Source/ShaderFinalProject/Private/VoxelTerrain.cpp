@@ -3,6 +3,9 @@
 
 #include "VoxelTerrain.h"
 
+#include "ChunkBase.h"
+#include "Kismet/GameplayStatics.h"
+
 // Sets default values
 AVoxelTerrain::AVoxelTerrain()
 {
@@ -15,7 +18,7 @@ AVoxelTerrain::AVoxelTerrain()
 void AVoxelTerrain::BeginPlay()
 {
 	Super::BeginPlay();
-	this->SetActorLocation(SpawnLocation);
+	
 
 	for ( int x = -DrawDistance; x <= DrawDistance; ++x)
 	{
